@@ -25,6 +25,24 @@ const Lessons = () => {
     spendingHabit: string;
   } | null>(null);
 
+  const staticChallenges = [
+    {
+      title: "No-Spend Weekend",
+      description:
+        "Challenge yourself to spend $0 on non-essentials this weekend. Plan free activities and track your success!",
+    },
+    {
+      title: "Save $100 in 10 Days",
+      description:
+        "Find creative ways to save or earn an extra $100 in the next 10 days. Cancel unused subscriptions, sell something, or cut back on treats.",
+    },
+    {
+      title: "Meal Prep Week",
+      description:
+        "Prepare all your meals at home for one week. Track how much you save compared to eating out.",
+    },
+  ];
+
   useEffect(() => {
     const fetchLessons = async () => {
       if (!username) return;
@@ -117,6 +135,19 @@ const Lessons = () => {
             <p>{lesson.content}</p>
           </div>
         ))}
+      </div>
+
+      {/* Challenges Section */}
+      <div style={{ marginTop: "2rem" }}>
+        <h3>Challenges</h3>
+        <div className="lessons-container">
+          {staticChallenges.map((challenge, idx) => (
+            <div key={idx} className="lesson-card">
+              <h4>{challenge.title}</h4>
+              <p>{challenge.description}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
