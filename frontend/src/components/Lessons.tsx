@@ -15,6 +15,17 @@ interface LessonsResponse {
   };
 }
 
+interface Challenge {
+  id: string;
+  title: string;
+  description: string;
+  joined: boolean;
+  completed: boolean;
+  progress: number;
+  goalAmount?: number;
+  type?: string;
+}
+
 const Lessons = () => {
   const { username } = useContext(UserContext);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -24,6 +35,8 @@ const Lessons = () => {
     hasGoal: boolean;
     spendingHabit: string;
   } | null>(null);
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [challengeLoading, setChallengeLoading] = useState(false);
 
   const staticChallenges = [
     {
@@ -93,6 +106,100 @@ const Lessons = () => {
     fetchLessons();
   }, [username]);
 
+  useEffect(() => {
+    const fetchChallenges = async () => {
+      if (!username) return;
+      setChallengeLoading(true);
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch("http://localhost:5500/api/challenges", {
+          headers: { Authorization: token ? `Bearer ${token}` : "" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setChallenges(data);
+        }
+      } catch (err) {
+        // ignore for now
+      } finally {
+        setChallengeLoading(false);
+      }
+    };
+    fetchChallenges();
+  }, [username]);
+
+  const joinChallenge = async (challengeId: string) => {
+    setChallengeLoading(true);
+    const token = localStorage.getItem("token");
+    await fetch("http://localhost:5500/api/challenges/join", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ challengeId }),
+    });
+    setChallenges((prev) =>
+      prev.map((c) => (c.id === challengeId ? { ...c, joined: true } : c))
+    );
+    setChallengeLoading(false);
+  };
+
+  const leaveChallenge = async (challengeId: string) => {
+    setChallengeLoading(true);
+    const token = localStorage.getItem("token");
+    await fetch("http://localhost:5500/api/challenges/leave", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ challengeId }),
+    });
+    setChallenges((prev) =>
+      prev.map((c) =>
+        c.id === challengeId
+          ? { ...c, joined: false, completed: false, progress: 0 }
+          : c
+      )
+    );
+    setChallengeLoading(false);
+  };
+
+  const completeChallenge = async (challengeId: string) => {
+    setChallengeLoading(true);
+    const token = localStorage.getItem("token");
+    await fetch("http://localhost:5500/api/challenges/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ challengeId }),
+    });
+    setChallenges((prev) =>
+      prev.map((c) => (c.id === challengeId ? { ...c, completed: true } : c))
+    );
+    setChallengeLoading(false);
+  };
+
+  const updateProgress = async (challengeId: string, progress: number) => {
+    setChallengeLoading(true);
+    const token = localStorage.getItem("token");
+    await fetch("http://localhost:5500/api/challenges/progress", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ challengeId, progress }),
+    });
+    setChallenges((prev) =>
+      prev.map((c) => (c.id === challengeId ? { ...c, progress } : c))
+    );
+    setChallengeLoading(false);
+  };
+
   if (!username) {
     return (
       <div className="alert alert-warning">
@@ -140,11 +247,73 @@ const Lessons = () => {
       {/* Challenges Section */}
       <div style={{ marginTop: "2rem" }}>
         <h3>Challenges</h3>
+        {challengeLoading && <div>Loading challenges...</div>}
         <div className="lessons-container">
-          {staticChallenges.map((challenge, idx) => (
-            <div key={idx} className="lesson-card">
+          {challenges.map((challenge, idx) => (
+            <div key={challenge.id} className="lesson-card">
               <h4>{challenge.title}</h4>
               <p>{challenge.description}</p>
+              {challenge.joined ? (
+                <>
+                  {challenge.type === "save-amount" && (
+                    <div>
+                      <label>
+                        Progress: $
+                        <input
+                          type="number"
+                          value={challenge.progress}
+                          min={0}
+                          max={challenge.goalAmount || 1000}
+                          onChange={(e) =>
+                            updateProgress(challenge.id, Number(e.target.value))
+                          }
+                          style={{ width: 80, marginLeft: 4 }}
+                        />
+                        {challenge.goalAmount
+                          ? ` / $${challenge.goalAmount}`
+                          : ""}
+                      </label>
+                      {challenge.progress >= (challenge.goalAmount || 0) &&
+                        !challenge.completed && (
+                          <button
+                            style={{ marginLeft: 8 }}
+                            onClick={() => completeChallenge(challenge.id)}
+                            disabled={challengeLoading}
+                          >
+                            Mark as Complete
+                          </button>
+                        )}
+                    </div>
+                  )}
+                  {challenge.type !== "save-amount" && !challenge.completed && (
+                    <button
+                      onClick={() => completeChallenge(challenge.id)}
+                      disabled={challengeLoading}
+                    >
+                      Mark as Complete
+                    </button>
+                  )}
+                  {challenge.completed && (
+                    <span style={{ color: "green", marginLeft: 8 }}>
+                      ✓ Completed
+                    </span>
+                  )}
+                  <button
+                    style={{ marginLeft: 8 }}
+                    onClick={() => leaveChallenge(challenge.id)}
+                    disabled={challengeLoading}
+                  >
+                    Leave Challenge
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => joinChallenge(challenge.id)}
+                  disabled={challengeLoading}
+                >
+                  Join Challenge
+                </button>
+              )}
             </div>
           ))}
         </div>

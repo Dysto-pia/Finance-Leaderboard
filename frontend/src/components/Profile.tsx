@@ -10,6 +10,8 @@ interface ProfileData {
   monthlyBudget: number | null;
   savingsGoal: number | null;
   savingsTimeframe: number | null;
+  optedOut?: boolean;
+  pseudonym?: string;
 }
 
 const Profile = () => {
@@ -25,6 +27,8 @@ const Profile = () => {
     monthlyBudget: null,
     savingsGoal: null,
     savingsTimeframe: null,
+    optedOut: false,
+    pseudonym: "",
   });
 
   // Fetch existing profile
@@ -224,6 +228,40 @@ const Profile = () => {
             onChange={handleChange}
             placeholder="How many months to reach goal"
           />
+        </div>
+
+        <h3>Privacy Options</h3>
+        <div className="form-group">
+          <label>
+            <input
+              type="checkbox"
+              name="optedOut"
+              checked={!!profile.optedOut}
+              onChange={(e) =>
+                setProfile({ ...profile, optedOut: e.target.checked })
+              }
+            />{" "}
+            Opt out of public leaderboard
+          </label>
+        </div>
+        <div className="form-group">
+          <label>
+            Display as pseudonym:
+            <input
+              type="text"
+              name="pseudonym"
+              value={profile.pseudonym || ""}
+              onChange={(e) =>
+                setProfile({ ...profile, pseudonym: e.target.value })
+              }
+              placeholder="Enter pseudonym"
+              maxLength={20}
+              style={{ marginLeft: 8 }}
+            />
+          </label>
+          <small className="form-text">
+            (Your real username will be hidden if you use a pseudonym.)
+          </small>
         </div>
 
         <button type="submit" className="primary-button" disabled={isLoading}>

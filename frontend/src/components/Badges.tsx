@@ -16,10 +16,31 @@ const Badges = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [badges, setBadges] = useState<Badge[]>([]);
+  const [dailyStreak, setDailyStreak] = useState(0);
+  const [weeklyStreak, setWeeklyStreak] = useState(0);
 
   useEffect(() => {
-    // In a real app, you would fetch badges from an API
-    // For now, we'll simulate it with dummy data
+    // Fetch streaks from backend
+    const fetchStreaks = async () => {
+      if (!username) return;
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch("http://localhost:5500/api/streaks", {
+          headers: { Authorization: token ? `Bearer ${token}` : "" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDailyStreak(data.dailyStreak || 0);
+          setWeeklyStreak(data.weeklyStreak || 0);
+        }
+      } catch (err) {
+        // Ignore streak errors for now
+      }
+    };
+
+    fetchStreaks();
+
+    // Dummy badges logic (unchanged)
     setTimeout(() => {
       const dummyBadges: Badge[] = [
         {
@@ -78,6 +99,29 @@ const Badges = () => {
   return (
     <div className="card">
       <h2>Achievement Badges</h2>
+
+      {/* Streaks Section */}
+      <div style={{ marginBottom: "1.5rem" }}>
+        <div style={{ display: "flex", gap: "2rem" }}>
+          <div>
+            <strong>Daily Streak:</strong>{" "}
+            <span role="img" aria-label="fire">
+              🔥
+            </span>{" "}
+            {dailyStreak} days
+          </div>
+          <div>
+            <strong>Weekly Streak:</strong>{" "}
+            <span role="img" aria-label="calendar">
+              📅
+            </span>{" "}
+            {weeklyStreak} weeks
+          </div>
+        </div>
+        <div style={{ fontSize: "0.95em", color: "#666", marginTop: 4 }}>
+          Keep submitting your financial data to build streaks!
+        </div>
+      </div>
 
       {isLoading ? (
         <p>Loading badges...</p>

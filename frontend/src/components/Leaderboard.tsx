@@ -28,21 +28,43 @@ const Leaderboard = () => {
   const [error, setError] = useState<string | null>(null);
   const { username } = useContext(UserContext);
 
-  // Privacy options for the current user
-  const [optedOut, setOptedOut] = useState<boolean>(() => {
-    return localStorage.getItem("optedOutLeaderboard") === "true";
-  });
-  const [pseudonym, setPseudonym] = useState<string>(() => {
-    return localStorage.getItem("leaderboardPseudonym") || "";
-  });
+  // Privacy options for the current user (from backend)
+  const [optedOut, setOptedOut] = useState<boolean>(false);
+  const [pseudonym, setPseudonym] = useState<string>("");
 
-  // Save privacy options locally and (optionally) to backend
+  // Fetch current user's privacy settings from backend
   useEffect(() => {
-    localStorage.setItem("optedOutLeaderboard", optedOut ? "true" : "false");
-  }, [optedOut]);
-  useEffect(() => {
-    localStorage.setItem("leaderboardPseudonym", pseudonym);
-  }, [pseudonym]);
+    const fetchProfile = async () => {
+      if (!username) return;
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:5500/api/profile", {
+        headers: { Authorization: token ? `Bearer ${token}` : "" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOptedOut(!!data.optedOut);
+        setPseudonym(data.pseudonym || "");
+      }
+    };
+    fetchProfile();
+  }, [username]);
+
+  // Save privacy options to backend
+  const handlePrivacyChange = async (
+    newOptedOut: boolean,
+    newPseudonym: string
+  ) => {
+    if (!username) return;
+    const token = localStorage.getItem("token");
+    await fetch("http://localhost:5500/api/profile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ optedOut: newOptedOut, pseudonym: newPseudonym }),
+    });
+  };
 
   useEffect(() => {
     setIsLoading(true);
@@ -56,32 +78,19 @@ const Leaderboard = () => {
         return res.json();
       })
       .then((data) => {
-        console.log("Leaderboard data:", data); // Log the data to debug
-
-        // Filter out opted-out users
-        const filtered = data.filter(
-          (entry: LeaderboardEntry) => !entry.optedOut
-        );
         if (page === 1) {
-          setEntries(filtered);
+          setEntries(data);
         } else {
-          setEntries((prev) => [...prev, ...filtered]);
+          setEntries((prev) => [...prev, ...data]);
         }
-        setHasMore(filtered.length === PAGE_SIZE);
+        setHasMore(data.length === PAGE_SIZE);
         setIsLoading(false);
       })
       .catch((err) => {
-        console.error("Failed to fetch leaderboard data:", err);
         setError("Failed to fetch leaderboard data. Please try again.");
         setIsLoading(false);
       });
   }, [page]);
-
-  // Handler to update privacy options (simulate backend update)
-  const handlePrivacyChange = () => {
-    // In a real app, send to backend as well
-    // For now, just update local state
-  };
 
   const handleShowMore = () => setPage((p) => p + 1);
 
@@ -105,9 +114,9 @@ const Leaderboard = () => {
               <input
                 type="checkbox"
                 checked={optedOut}
-                onChange={() => {
-                  setOptedOut((v) => !v);
-                  handlePrivacyChange();
+                onChange={async (e) => {
+                  setOptedOut(e.target.checked);
+                  await handlePrivacyChange(e.target.checked, pseudonym);
                 }}
               />{" "}
               Opt out of public leaderboard
@@ -119,7 +128,10 @@ const Leaderboard = () => {
               <input
                 type="text"
                 value={pseudonym}
-                onChange={(e) => setPseudonym(e.target.value)}
+                onChange={async (e) => {
+                  setPseudonym(e.target.value);
+                  await handlePrivacyChange(optedOut, e.target.value);
+                }}
                 placeholder="Enter pseudonym"
                 maxLength={20}
                 style={{ marginLeft: 8 }}
@@ -156,11 +168,11 @@ const Leaderboard = () => {
             if (username && entry.username === username && optedOut) {
               return null;
             }
-            // Show pseudonym if set and this is the current user
+            // Show pseudonym if set, otherwise username
             const displayName =
-              username && entry.username === username && pseudonym
-                ? pseudonym
-                : entry.pseudonym || entry.username;
+              (username && entry.username === username && pseudonym) ||
+              entry.pseudonym ||
+              entry.username;
             return (
               <tr
                 key={i}

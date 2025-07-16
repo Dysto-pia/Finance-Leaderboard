@@ -22,7 +22,7 @@
 ## 📊 3. Leaderboard Mechanics
 
 - [x] Choose leaderboard type (progress-based, not friends-only)
-- [~] Add privacy options (opt-out, pseudonyms, private mode)
+- [x] Add privacy options (opt-out, pseudonyms, private mode)
 - [x] Show meaningful metrics (e.g., “% of goal completed,” not just “$ net worth”)
 - [x] Offer non-comparative stats too (dashboard shows self-progress)
 
@@ -48,7 +48,7 @@
 
 ## 🎮 6. Gamification Features
 
-- [ ] Daily/weekly streaks for good habits
+- [~] Daily/weekly streaks for good habits
 - [x] Badges for milestones (dummy badges implemented)
 - [ ] Social challenges (e.g., “Your friends saved $X this month!”)
 - [x] Leaderboard incentives without shaming (positive encouragement, no shaming)

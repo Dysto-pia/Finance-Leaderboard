@@ -101,10 +101,75 @@ const profileSchema = new mongoose.Schema({
   monthlyBudget: Number,
   savingsGoal: Number,
   savingsTimeframe: Number,
+  // Add privacy fields
+  optedOut: { type: Boolean, default: false },
+  pseudonym: { type: String, default: "" },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
 const Profile = mongoose.model("Profile", profileSchema);
+
+// --- Challenge Models ---
+const challengeSchema = new mongoose.Schema({
+  id: { type: String, unique: true },
+  title: String,
+  description: String,
+  startDate: Date,
+  endDate: Date,
+  goalAmount: Number, // e.g., save $100
+  type: String, // e.g., "no-spend", "save-amount", etc.
+});
+const Challenge = mongoose.model("Challenge", challengeSchema);
+
+const userChallengeSchema = new mongoose.Schema({
+  username: String,
+  challengeId: String,
+  joinedAt: { type: Date, default: Date.now },
+  completed: { type: Boolean, default: false },
+  progress: Number, // e.g., amount saved so far
+  lastUpdated: { type: Date, default: Date.now },
+});
+const UserChallenge = mongoose.model("UserChallenge", userChallengeSchema);
+
+// --- Seed some static challenges if not present ---
+async function seedChallenges() {
+  const count = await Challenge.countDocuments();
+  if (count === 0) {
+    await Challenge.insertMany([
+      {
+        id: "no_spend_weekend",
+        title: "No-Spend Weekend",
+        description:
+          "Spend $0 on non-essentials this weekend. Plan free activities and track your success!",
+        startDate: null,
+        endDate: null,
+        goalAmount: 0,
+        type: "no-spend",
+      },
+      {
+        id: "save_100_10_days",
+        title: "Save $100 in 10 Days",
+        description:
+          "Find creative ways to save or earn an extra $100 in the next 10 days.",
+        startDate: null,
+        endDate: null,
+        goalAmount: 100,
+        type: "save-amount",
+      },
+      {
+        id: "meal_prep_week",
+        title: "Meal Prep Week",
+        description:
+          "Prepare all your meals at home for one week. Track how much you save compared to eating out.",
+        startDate: null,
+        endDate: null,
+        goalAmount: 0,
+        type: "meal-prep",
+      },
+    ]);
+  }
+}
+seedChallenges();
 
 // --- Routes ---
 
@@ -497,18 +562,42 @@ app.post("/api/plaid/disconnect", authenticateToken, async (req, res) => {
   }
 });
 
-// Get leaderboard
+// Get leaderboard (now respects privacy)
 app.get("/api/leaderboard", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
+  // Get all leaderboard entries
   const entries = await LeaderboardEntry.find()
     .sort({ score: -1 })
     .skip(skip)
     .limit(limit);
 
-  res.json(entries);
+  // Get privacy info for all users in this page
+  const usernames = entries.map((e) => e.username);
+  const profiles = await Profile.find({ username: { $in: usernames } });
+  const privacyMap = {};
+  profiles.forEach((p) => {
+    privacyMap[p.username] = {
+      optedOut: !!p.optedOut,
+      pseudonym: p.pseudonym || "",
+    };
+  });
+
+  // Attach privacy info to leaderboard entries
+  const filtered = entries
+    .map((entry) => {
+      const privacy = privacyMap[entry.username] || {};
+      return {
+        ...entry.toObject(),
+        optedOut: privacy.optedOut,
+        pseudonym: privacy.pseudonym,
+      };
+    })
+    .filter((entry) => !entry.optedOut);
+
+  res.json(filtered);
 });
 
 // Submit score (JWT protected)
@@ -610,6 +699,8 @@ app.get("/api/profile", authenticateToken, async (req, res) => {
         goal: "",
         fullName: "",
         targetSavingsRate: 20,
+        optedOut: false,
+        pseudonym: "",
       });
     }
 
@@ -621,6 +712,8 @@ app.get("/api/profile", authenticateToken, async (req, res) => {
       monthlyBudget: profile.monthlyBudget || null,
       savingsGoal: profile.savingsGoal || null,
       savingsTimeframe: profile.savingsTimeframe || null,
+      optedOut: profile.optedOut || false,
+      pseudonym: profile.pseudonym || "",
     });
   } catch (err) {
     console.error("Error fetching profile:", err);
@@ -639,6 +732,8 @@ app.post("/api/profile", authenticateToken, async (req, res) => {
     monthlyBudget,
     savingsGoal,
     savingsTimeframe,
+    optedOut,
+    pseudonym,
   } = req.body;
 
   try {
@@ -652,6 +747,8 @@ app.post("/api/profile", authenticateToken, async (req, res) => {
         monthlyBudget,
         savingsGoal,
         savingsTimeframe,
+        optedOut: !!optedOut,
+        pseudonym: pseudonym || "",
         updatedAt: new Date(),
       },
       { upsert: true, new: true }
@@ -662,6 +759,8 @@ app.post("/api/profile", authenticateToken, async (req, res) => {
       profile: {
         goal: updatedProfile.goal,
         fullName: updatedProfile.fullName,
+        optedOut: updatedProfile.optedOut,
+        pseudonym: updatedProfile.pseudonym,
       },
     });
   } catch (err) {
@@ -867,6 +966,186 @@ app.get("/api/financial-data/recent", authenticateToken, async (req, res) => {
   } catch (err) {
     console.error("Error fetching recent data:", err);
     res.status(500).json({ error: "Failed to fetch recent data" });
+  }
+});
+
+// --- Helper functions for streaks ---
+function calculateDailyStreak(dates) {
+  if (!dates.length) return 0;
+  // Sort dates descending
+  const sorted = dates.map((d) => new Date(d)).sort((a, b) => b - a);
+  let streak = 0;
+  let current = new Date();
+  current.setHours(0, 0, 0, 0);
+
+  for (let date of sorted) {
+    const diffDays = Math.floor((current - date) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) {
+      streak++;
+      current.setDate(current.getDate() - 1);
+    } else if (diffDays === 1) {
+      streak++;
+      current.setDate(current.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+function calculateWeeklyStreak(dates) {
+  if (!dates.length) return 0;
+  // Sort dates descending
+  const sorted = dates.map((d) => new Date(d)).sort((a, b) => b - a);
+  let streak = 0;
+  let current = new Date();
+  // Set to start of week (Monday)
+  current.setHours(0, 0, 0, 0);
+  current.setDate(current.getDate() - ((current.getDay() + 6) % 7));
+  for (let date of sorted) {
+    const weekStart = new Date(date);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+    const diffWeeks = Math.floor(
+      (current - weekStart) / (1000 * 60 * 60 * 24 * 7)
+    );
+    if (diffWeeks === 0) {
+      streak++;
+      current.setDate(current.getDate() - 7);
+    } else if (diffWeeks === 1) {
+      streak++;
+      current.setDate(current.getDate() - 7);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// --- API endpoint for streaks ---
+app.get("/api/streaks", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  try {
+    // Get all submission dates for this user, sorted descending
+    const entries = await FinancialData.find({ username })
+      .sort({ createdAt: -1 })
+      .select("createdAt");
+    const dates = entries.map((e) => e.createdAt);
+
+    // Remove duplicate days (multiple submissions in one day)
+    const uniqueDays = Array.from(
+      new Set(dates.map((d) => new Date(d).toISOString().slice(0, 10)))
+    ).map((d) => new Date(d));
+
+    // Remove duplicate weeks (multiple submissions in one week)
+    const uniqueWeeks = Array.from(
+      new Set(
+        dates.map((d) => {
+          const dt = new Date(d);
+          dt.setHours(0, 0, 0, 0);
+          dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+          return dt.toISOString().slice(0, 10);
+        })
+      )
+    ).map((d) => new Date(d));
+
+    const dailyStreak = calculateDailyStreak(uniqueDays);
+    const weeklyStreak = calculateWeeklyStreak(uniqueWeeks);
+
+    res.json({ dailyStreak, weeklyStreak });
+  } catch (err) {
+    console.error("Error calculating streaks:", err);
+    res.status(500).json({ error: "Failed to calculate streaks" });
+  }
+});
+
+// --- Challenge Endpoints ---
+
+// List all challenges with user progress
+app.get("/api/challenges", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  try {
+    const challenges = await Challenge.find();
+    const userChallenges = await UserChallenge.find({ username });
+    const userChallengeMap = {};
+    userChallenges.forEach((uc) => {
+      userChallengeMap[uc.challengeId] = uc;
+    });
+    const result = challenges.map((ch) => ({
+      ...ch.toObject(),
+      joined: !!userChallengeMap[ch.id],
+      completed: userChallengeMap[ch.id]?.completed || false,
+      progress: userChallengeMap[ch.id]?.progress || 0,
+    }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch challenges" });
+  }
+});
+
+// Join a challenge
+app.post("/api/challenges/join", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  const { challengeId } = req.body;
+  try {
+    const challenge = await Challenge.findOne({ id: challengeId });
+    if (!challenge)
+      return res.status(404).json({ error: "Challenge not found" });
+
+    let userChallenge = await UserChallenge.findOne({ username, challengeId });
+    if (!userChallenge) {
+      userChallenge = new UserChallenge({ username, challengeId, progress: 0 });
+      await userChallenge.save();
+    }
+    res.json({ message: "Joined challenge", challengeId });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to join challenge" });
+  }
+});
+
+// Leave a challenge
+app.post("/api/challenges/leave", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  const { challengeId } = req.body;
+  try {
+    await UserChallenge.deleteOne({ username, challengeId });
+    res.json({ message: "Left challenge", challengeId });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to leave challenge" });
+  }
+});
+
+// Mark challenge as completed (for manual challenges)
+app.post("/api/challenges/complete", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  const { challengeId } = req.body;
+  try {
+    const userChallenge = await UserChallenge.findOneAndUpdate(
+      { username, challengeId },
+      { completed: true, lastUpdated: new Date() },
+      { new: true }
+    );
+    if (!userChallenge) return res.status(404).json({ error: "Not joined" });
+    res.json({ message: "Challenge marked as completed", challengeId });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to complete challenge" });
+  }
+});
+
+// Update challenge progress (for save-amount type)
+app.post("/api/challenges/progress", authenticateToken, async (req, res) => {
+  const username = req.user.username;
+  const { challengeId, progress } = req.body;
+  try {
+    const userChallenge = await UserChallenge.findOneAndUpdate(
+      { username, challengeId },
+      { progress, lastUpdated: new Date() },
+      { new: true }
+    );
+    if (!userChallenge) return res.status(404).json({ error: "Not joined" });
+    res.json({ message: "Progress updated", challengeId, progress });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update progress" });
   }
 });
 
